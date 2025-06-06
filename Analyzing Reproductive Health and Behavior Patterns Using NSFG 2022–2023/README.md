@@ -1,4 +1,5 @@
-Finals project in DSC1105 (Exploratory Data Analysis)
+Finals project in DSC1105 (Exploratory Data Analysis) 
+
 Using the 2022-2023 National Survey of Family Growth (NSFG) Survey data [files](https://www.cdc.gov/nchs/nsfg/nsfg-2022-2023-puf.htm):
 - Choose variables that provide numerical and categorical data on demographics, behavior, health, etc. Document variable selection process
 - Perform data cleaning (handle missing values (by deletion, imputation, etc.)
