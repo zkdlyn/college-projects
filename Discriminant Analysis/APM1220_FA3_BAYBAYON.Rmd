@@ -1,0 +1,430 @@
+---
+title: "Formative Assessment 3"
+author: "Baybayon, Darlyn Antoinette B."
+output: pdf_document
+header-includes:
+  - \usepackage{titling}
+  - \setlength{\droptitle}{-2cm}   % move title up
+geometry: top=2cm, bottom=2cm, left=2cm, right=2cm
+mainfont: "Georgia"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(knitr)
+  library(kableExtra)
+  library(readxl)
+  library(MVN)
+  library(Hotelling)
+  library(dplyr)
+  library(heplots)
+  library(MASS)
+  library(klaR)
+})
+```
+
+## Flea Beetles Dataset
+
+```{r}
+df1 <- suppressMessages(read_excel("Flea Beetles.xlsx",skip=1))
+beetle1 <- df1[-20, 2:5]
+beetle2 <- df1[, 7:10]
+names(beetle1) <- c("Y1","Y2","Y3","Y4")
+names(beetle2) <- c("Y1","Y2","Y3","Y4")
+beetle1$Species <- "H. oleracea"
+beetle2$Species <-  "H. carduorum"
+
+beetles<- bind_rows(beetle1, beetle2)
+beetles$Species <- factor(beetles$Species)
+head(beetles)
+```
+
+(a) **Find the discriminant function coefficient vector and test significance of separation.**
+
+Compute group mean vectors
+
+```{r}
+xbar1 <- colMeans(beetle1[, 1:4])
+xbar2 <- colMeans(beetle2[, 1:4])
+```
+
+Compute group covariance matrices
+
+```{r}
+S1 <- cov(beetle1[, 1:4])
+S2 <- cov(beetle2[, 1:4])
+```
+
+```{r}
+boxM(cbind(Y1, Y2, Y3, Y4)~ Species, data = beetles)
+```
+
+The Box’sM test did not reveal a significant difference (p\>0.05) in covariance matrices across the treatment groups. Therefore, the assumption of homogeneity of covariance matrices is met.
+
+
+Pooled within-group covariance matrix $S_p=\frac{(n_1-1)S_1+(n_2-1  )S_2}{n_1+n_2-2}$
+
+```{r}
+n1 <- nrow(beetle1)
+n2 <- nrow(beetle2)
+
+Sp <- ((n1-1) * S1 + (n2-1) * S2) / (n1+n2-2)
+Sp
+```
+
+Compute $a=S_p^{-1}(\bar{x_1}-\bar{x_2})$
+
+```{r}
+a <- solve(Sp, xbar1-xbar2) 
+a
+```
+
+Hence, we have the following discriminant function:
+
+$$z=0.345y_1-0.130y_2-0.106y_3-0.143y_4$$ 
+
+Test significance of separation using Hotelling's $T^2$
+
+```{r}
+diff <- xbar1 - xbar2
+
+T2 <- (n1*n2) / (n1+n2) * t(diff) %*% solve(Sp) %*% diff
+T2 <- as.numeric(T2)  
+p=ncol(beetles)-1
+
+df1 <- p
+df2 <- n1 + n2 - p - 1
+
+F_stat <- (df2*T2) / (df1*(n1+n2- 2))
+p_val <- pf(F_stat, df1, df2, lower.tail = FALSE)
+
+data.frame(
+  T2 = T2, 
+  F_stat = F_stat,
+  df1 = df1, df2 = df2,
+  p_val = p_val
+)
+```
+
+Using hotelling.test() from Hotelling library
+
+```{r}
+htest <- hotelling.test(beetle1[,1:4], beetle2[,1:4])
+print(htest)
+```
+
+Since p \< 0.05, $T^2$ is statistically significant and it follows that the discriminant function coefficient, $a$, is significantly different from 0.
+
+(b) **Find the standardized coefficients.**
+
+```{r}
+std.a <- sqrt(diag(Sp)) * a
+std.a
+```
+
+```{r}
+
+barplot(std.a, main = "Variable Contributions to Z",
+        ylab = "Standardized Coefficient", col = "salmon")
+```
+
+
+The standardized discriminant coefficients show that Y1 (4.137) is the dominant contributor to separating the two beetle species, while Y2 (–2.501), Y4 (–2.068), and Y3 (–1.158), contribute relatively little additional information once Y1 is accounted for.
+
+Alternatively, linear discriminant analysis may be performed using the MASS package in R.
+
+```{r}
+beetle.lda <- lda(Species ~ ., data = beetles)
+beetle.lda$scaling
+```
+
+It must be noted that $a$ is not unique, only its direction matters. The values are different from the results of manual calculations because the lda() function uses another scaling method, based on the eigen decomposition of $W^{-1}B$. 
+
+```{r}
+xbar <- colMeans(beetles[,1:4])
+
+B <- n1 * (xbar1 - xbar) %*% t(xbar1 - xbar) +
+      n2 * (xbar2 - xbar) %*% t(xbar2 - xbar)
+
+W <- (n1-1)*S1 + (n2-1)*S2
+
+eig <- eigen(solve(W) %*% B)
+a_eig <- eig$vectors[,1]  
+```
+
+The extracted leading eigenvector (since there are only two groups) are the discriminant coefficients. After normalizing both the manually computed a vector and this eiegenvector to unit length, we can see that they are quite similar.
+
+```{r}
+a_norm <- a / sqrt(sum(a^2))
+a_eig_norm  <- a_eig / sqrt(sum(a_eig^2))
+
+cbind(a_norm, a_eig_norm)
+```
+
+(c) **Calculate t-tests for individual variables.**
+
+```{r}
+vars <- c("Y1", "Y2", "Y3", "Y4")
+ttest_results <- p_vals <- numeric(length(vars))
+
+for (i in 1:length(vars)) {
+  var <- vars[i]
+  test <- t.test(beetle1[[var]], beetle2[[var]])
+  ttest_results[i] <- test$statistic
+  p_vals[i] <- test$p.value
+}
+
+data.frame(variable = vars, t = ttest_results, p_val = p_vals)
+```
+
+The t-tests for each variable comparing the means of two groups, all returned to be significant (p\<0.05). This indicates a statistically significant difference between the groups for each variable.
+
+(d) **Compare the results of (b) and (c) as to the contribution of each variable to separation of the groups.**
+
+All between-group differences of each variable were significantly different, suggesting that each has the potential to discriminate between groups on its own. Larger absolute t values indicate stronger univariate evidence of group differences, with Y3 showing the largest mean difference and Y1 the smallest. However, the standardized discriminant function coefficients show a different pattern, determining Y1 to be the most important contributor in the separation while the other variables contribute significantly less. This illustrates how a variable may have highly significant between-group difference but contribute little unique information to multivariate discrimination likely due to shared variance with other variables.
+
+(e) **Find the partial F for each variable. Do the partial F’s rank the variables in the same order of importance as the standardized coefficients?**
+
+$$
+F = (v-p+1)\frac{T^2_p-T^2_{p-1}}{v+T^2_{p-1}}
+$$
+
+Partial F for each variable
+
+```{r}
+v = n1+n2-2
+
+T2_y1 <- hotelling.test(beetle1[,2:4], beetle2[,2:4])$stats[[1]]
+F_y1 <- ((v-p+1)*(T2-T2_y1))/(v+T2_y1)
+
+T2_y2 <- hotelling.test(beetle1[,c(1,3,4)], beetle2[, c(1,3,4)])$stats[[1]]
+F_y2 <- ((v-p+1)*(T2-T2_y2))/(v+T2_y2)
+
+T2_y3 <- hotelling.test(beetle1[, c(1,2,4)], beetle2[, c(1,2,4)])$stats[[1]]
+F_y3 <- ((v-p+1)*(T2-T2_y3))/(v+T2_y3)
+
+T2_y4 <- hotelling.test(beetle1[,1:3], beetle2[,1:3])$stats[[1]]
+F_y4 <- ((v-p+1)*(T2-T2_y4))/(v+T2_y4)
+
+data.frame(Variable = vars, F_partial = c(F_y1, F_y2, F_y3, F_y4))
+```
+
+The partial F-values, computed for each variable, ranked Y1 as the strongest discriminating variable, followed by Y4 and Y2, with Y3 contributing the least. This pattern is consistent with the standardized coefficients, both emphasizing the dominant role of Y1 relative to the much weaker contributions of the other variables. While the methods yielded similar rankings here, it is worth noting that they can diverge in other cases. Partial F-tests focus on evaluating the contribution of each variable to explaining variance in the dependent variable, after controlling for other variables. On the other hand, standardized coefficients in discriminant analysis focus on how well each variable helps to separate the groups, showing which variables are most useful in distinguishing between categories.
+
+
+## Scores on Fish Dataset
+
+```{r}
+df2 <- suppressMessages(read_excel("Scores on Fish.xlsx",skip=2))
+method1 <- df2[, 1:4]
+method2 <- df2[, 5:8]
+method3 <- df2[, 9:12]
+
+names(method1) <- c("Y1","Y2","Y3","Y4")
+names(method2) <- c("Y1","Y2","Y3","Y4")
+names(method3) <- c("Y1","Y2","Y3","Y4")
+
+method1$Method <- 1
+method2$Method <- 2
+method3$Method <- 3
+
+fish <- bind_rows(method1, method2,method3)
+fish$Method <- factor(fish$Method)
+head(fish)
+```
+
+(a) **Find the eigenvectors.**
+
+Overall mean and Group means
+```{r}
+xbar <- colMeans(fish[,1:4])
+xbar1 <- colMeans(method1[,1:4])
+xbar2 <- colMeans(method2[,1:4])
+xbar3 <- colMeans(method3[,1:4])
+```
+
+Group covariance matrices
+
+```{r}
+S1 <- cov(method1)
+S2 <- cov(method2)
+S3<- cov(method3)
+```
+
+```{r}
+boxM(cbind(Y1, Y2, Y3, Y4)~Method, data = fish)
+```
+
+The Box’sM test did not reveal a significant difference (p\>0.05) in covariance matrices across the treatment groups. Therefore, the assumption of homogeneity of covariance matrices is met.
+
+
+Within-group (W) and Between-group scatter (B) matrices
+```{r}
+n1 <- nrow(method1)
+n2 <- nrow(method2)
+n3 <- nrow(method3)
+
+W <- (n1-1)*S1 + (n2-1)*S2 + (n3-1)*S3
+
+
+B <- n1*(xbar1-xbar) %*% t(xbar1-xbar) +
+     n2*(xbar2-xbar) %*% t(xbar2-xbar) +
+     n3*(xbar3 - xbar) %*% t(xbar3-xbar)
+
+W
+B
+```
+
+Eigenvectors and Eigenvalues
+```{r}
+eig <- eigen(solve(W[1:4,1:4]) %*% B[1:4,1:4])
+lambda <- eig$values[1:2]
+a <- eig$vectors[,1:2]
+print(a)   
+cat("lambdas:", lambda) 
+```
+
+Since there are three groups, there must be up to two discriminant functions. The eigenvectors derived correspond to our $a$ vector of discriminant function coefficients, while the $\lambda$ values measure the discriminatory power of each function.
+
+Alternatively, linear discriminant analysis may be performed using the MASS package in R.
+
+```{r}
+fish.lda <- lda(Method ~ ., data = fish)
+fish.lda$scaling
+```
+
+
+(b) **Carry out tests of significance for the discriminant functions and find the relative importance of each. Do these two procedures agree as to the number of important discriminant functions?**
+
+(c) **Find the standardized coefficients and comment on the contribution of the variables to separation of groups.**
+```{r}
+sds <- apply(fish[, 1:4], 2, sd)
+std.a <-a*sds
+std.a
+```
+
+
+```{r}
+rownames(std.a) <- colnames(fish[, 1:4])
+colnames(std.a) <- c("Z1", "Z2")
+par(mfrow=c(1,2))
+barplot(std.a[,1], main = "Variable Contributions to Z1",
+        ylab = "Standardized Coefficient", col = "salmon")
+barplot(std.a[,2], main = "Variable Contributions to Z2",
+        ylab = "Standardized Coefficient",col = "lightgreen")
+```
+
+In $a_1$, the Y2 has the strongest contribution with a positive coefficient of 0.508, indicating its importance in distinguishing between groups along this axis. Y3 also contributes negatively (-0.306), but to a lesser extent, while Y4 contributes minimally (-0.132). Y1 has a negligible effect (-0.007), suggesting it is not important in separating the groups along this dimension.
+
+In $a_2$, Y1 now shows a strong positive contribution (0.405), indicating that it plays a more prominent role in distinguishing groups along the second discriminant axis. Y2 contributes negatively (-0.363), reflecting a reversal in its influence compared to $a_1$, while Y3 again contributes negatively (-0.306), maintaining a moderate but consistent effect across both dimensions. Y4's contribution remains small (0.040), reinforcing its limited role in group separation overall.
+	
+These patterns suggest that Y2 is the most influential variable in the first discriminant function, driving the primary group separation. Meanwhile, Y1 becomes more relevant in the second dimension, capturing additional variation not explained by $a_1$. Y3 provides moderate support in both functions, whereas Y4 contributes little to the discrimination between groups.
+
+(d) **Find the partial F for each variable. Do they rank the variables in the same order as the standardized coefficients for the first discriminant function?**
+
+Partial F
+$$
+F=\frac{1-\Lambda}{\Lambda} \frac{\nu_E - p +1}{\nu_H}
+$$
+
+```{r}
+nu_H =2
+nu_E = 33 
+p =4
+
+lambda_partials <- numeric(p)
+F_partials <- numeric(p)
+
+fit_full <- manova(as.matrix(fish[, vars]) ~ Method, data = fish)
+lambda_full <- summary(fit_full, test = "Wilks")$stats[1, "Wilks"]
+
+
+for (i in seq_along(vars)) {
+  vars_reduced <- vars[-i]
+  fit_reduced <- manova(as.matrix(fish[, vars_reduced]) ~ Method, data = fish)
+  lambda_reduced <- summary(fit_reduced, test = "Wilks")$stats[1, "Wilks"]
+  
+  lambda_partials[i] <- lambda_reduced / lambda_full
+  F_partials[i] <- ((1 - lambda_partials[i]) / lambda_partials[i]) * ((nu_E - p + 1) / nu_H)
+}
+
+data.frame(vars, F_partials)
+
+```
+
+The partial F values, computed for each variable, ranked Y2 as the strongest discriminating variable, followed by Y3, with Y4 and Y1 contributing the least. This pattern is consistent with the standardized coefficients, both emphasizing the dominant role of Y2 moderate contribution of Y3 and Y4, and the much weaker contribution of Y1.
+
+(e) **Plot the first two discriminant functions for each observation and for the mean vectors.**
+
+```{r}
+X <- as.matrix(fish[, 1:4])     
+Z <- X %*% a                 
+colnames(Z) <- c("Z1", "Z2")
+
+centroids <- aggregate(Z, by = list(Method = fish$Method), FUN = mean)
+
+```
+
+
+
+```{r}
+plot(Z[, 1], Z[, 2],
+     col = c("red", "blue", "darkgreen")[as.numeric(fish$Method)],
+     pch = c(1, 2, 3)[as.numeric(fish$Method)],
+     xlab = "Z1",
+     ylab = "Z2",
+     main = "First Two Discriminant Functions",
+     cex = 1.2)
+
+points(centroids$Z1, centroids$Z2,
+       col = c("red", "blue", "darkgreen"),
+       pch = 19,
+       cex = 2)
+text(centroids$Z1, centroids$Z2, labels = centroids$Method,
+     pos = 3, cex = 0.9, font = 2)
+legend("topright", legend = levels(fish$Method),
+       col = c("red", "blue", "darkgreen"),
+       pch = c(1, 2, 3),
+       title = "Method")
+
+```
+
+The scatterplot of discriminant function values for scoring methods is plotted above. The plot revealed that Method 3 is the most distinct, with its centroid far from the other groups and only one outlier. Meanwhile, Methods 1 and 2 share more similar characteristics as illustrated by their centroid's closer distance and overlapping points.  
+
+
+
+(f) **Carry out a stepwise selection of variables.**
+
+```{r}
+step_model <- stepclass(x = fish[, 1:4],    
+                        grouping = fish$Method,  
+                        method = "lda",
+                        direction = "both",
+                        criterion="CR")
+
+```
+
+Using the stepclass() function from the klaR library, a step-wise selection of variables for discriminant analysis was conducted in both directions. This function uses 10-fold cross-validation to evaluate classification performance at each step. Beginning with no predictors, the method added Y2 first (46.7% accuracy), followed by Y3, raising accuracy to 65.8%. This suggests that Y2 and Y3 are most useful for group separation. This is also consistent with our findings in the coefficients of the discriminant function.
+
+However, stepwise methods can be unstable—they rely heavily on the sample and may select different variables with slight data changes. They also ignore variable interactions and can overfit, especially with small datasets. As such, this is best used as exploratory tools rather than definitive procedures
+
+Comparison of Full and Reduced Models
+```{r}
+cat("\nFull Model\n")
+print(fish.lda)
+cat("\n\nReduced Model\n")
+fish.lda.reduced <- lda(Method ~ Y2+Y3, data = fish)
+print(fish.lda.reduced)
+
+```
+
+In the full model, LD1 accounts for 96% of the between-group separation, with Y2 and Y3 contributing most strongly to this axis. LD2, driven primarily by Y1, explains only about 4%, making its contribution relatively minor. Thus, most of the discriminatory power comes from a single dimension.
+
+In the reduced model that uses only Y2 and Y3, LD1 captures an even higher 98% of the separation, while LD2 becomes more negligible. This shows that the reduced model achieves essentially the same—if not slightly better—group discrimination as the full model, but with fewer predictors. Hence, Y1 and Y4 add little unique value to distinguishing the groups once Y2 and Y3 are included.
+
+
